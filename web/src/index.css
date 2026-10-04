@@ -1,0 +1,198 @@
+@import "tailwindcss";
+
+/* PaperTrail theme, in the Flywheel design language: a dreamy sky (blue → periwinkle → lilac → pink) with a
+   twinkling starfield behind everything, white type on the sky, and content on warm paper cards.
+   Inside a card everything reads from the tokens below (indigo ink, stone greys, indigo accent).
+   Status colours never reuse the accent, so green always means "verified", amber "needs review". */
+
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Fraunces Variable", Georgia, "Times New Roman", serif;
+
+  --color-sky: #4b62de;
+  --color-surface: #ffffff;
+  --color-surface-2: #faf6ef;
+  --color-sunken: #f1ebe1;
+  --color-line: #ebe4d8;
+  --color-line-strong: #d6cfc3;
+  --color-ink: #1e1b4b;
+  --color-ink-2: #57534e;
+  --color-muted: #78716c;
+  --color-faint: #a8a29e;
+
+  --color-accent: #4338ca;
+  --color-accent-solid: #4f46e5;
+  --color-accent-solid-hover: #6366f1;
+  --color-accent-soft: #eef2ff;
+  --color-accent-ink: #4338ca;
+  --color-accent-line: #e0e7ff;
+
+  --color-ok: #047857;
+  --color-ok-dot: #10b981;
+  --color-ok-light: #6ee7b7;
+  --color-ok-soft: #ecfdf5;
+  --color-ok-ink: #047857;
+  --color-ok-line: #a7f3d0;
+  --color-warn-dot: #f59e0b;
+  --color-warn-soft: #fffbeb;
+  --color-warn-ink: #b45309;
+  --color-warn-line: #fcd34d;
+  --color-bad-dot: #f43f5e;
+  --color-bad-soft: #fff1f2;
+  --color-bad-ink: #be123c;
+  --color-bad-line: #fda4af;
+  --color-crit-dot: #dc2626;
+  --color-crit-soft: #fef2f2;
+  --color-crit-ink: #b91c1c;
+  --color-crit-line: #fca5a5;
+  --color-na-dot: #a8a29e;
+  --color-mark: #fde68a;
+
+  /* The dashboard's highlight: a pale lime that only marks "start here" and the active rail item. Never a status. */
+  --color-pop: #e4f59c;
+  --color-pop-strong: #cfe86b;
+  --color-pop-ink: #364508;
+  --color-night: #1e1b4b;
+
+  --shadow-card: 0 1px 2px rgb(30 27 75 / 0.08), 0 24px 48px -16px rgb(30 27 75 / 0.28);
+  --shadow-lift: 0 2px 3px rgb(30 27 75 / 0.08), 0 34px 64px -18px rgb(30 27 75 / 0.38);
+  --shadow-soft: 0 1px 2px rgb(30 27 75 / 0.06), 0 8px 20px -8px rgb(30 27 75 / 0.12);
+  --shadow-pill: 0 10px 30px rgb(30 27 75 / 0.35);
+  --shadow-press: 0 8px 24px rgb(67 56 202 / 0.35);
+  --shadow-pop: 0 30px 80px -20px rgb(30 27 75 / 0.55);
+}
+
+html {
+  background-color: #4b62de; /* while the gradient layer paints */
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: #ffffff;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---- the sky, behind everything ---- */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+body::before {
+  background: linear-gradient(180deg, #4b62de 0%, #5f78e8 26%, #8d87ee 52%, #bb95e3 74%, #f0b7d6 100%);
+}
+/* starfield: tiled specks that gently twinkle, fading out toward the pink */
+body::after {
+  background-image:
+    radial-gradient(2px 2px at 25px 35px, rgb(255 255 255 / 1), transparent 60%),
+    radial-gradient(1.5px 1.5px at 155px 88px, rgb(255 255 255 / 0.9), transparent 60%),
+    radial-gradient(2.4px 2.4px at 246px 158px, rgb(255 255 255 / 0.95), transparent 60%),
+    radial-gradient(1.4px 1.4px at 74px 203px, rgb(255 255 255 / 0.8), transparent 60%),
+    radial-gradient(2px 2px at 197px 246px, rgb(255 255 255 / 0.9), transparent 60%),
+    radial-gradient(1.4px 1.4px at 121px 14px, rgb(255 255 255 / 0.85), transparent 60%),
+    radial-gradient(6px 6px at 331px 111px, rgb(255 255 255 / 0.5), transparent 60%);
+  background-size: 413px 413px, 367px 367px, 547px 547px, 293px 293px, 469px 469px, 631px 631px, 883px 883px;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, rgb(0 0 0 / 0.85) 45%, rgb(0 0 0 / 0.3) 72%, transparent 92%);
+  mask-image: linear-gradient(180deg, #000 0%, rgb(0 0 0 / 0.85) 45%, rgb(0 0 0 / 0.3) 72%, transparent 92%);
+  animation: twinkle 7s ease-in-out infinite alternate;
+}
+@keyframes twinkle { from { opacity: 0.7; } to { opacity: 1; } }
+
+/* a denser patch of stars for one section, and the odd shooting star */
+.section-stars {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(2.2px 2.2px at 31px 42px, rgb(255 255 255 / 1), transparent 60%),
+    radial-gradient(1.5px 1.5px at 118px 91px, rgb(255 255 255 / 0.8), transparent 60%),
+    radial-gradient(2.6px 2.6px at 202px 151px, rgb(255 255 255 / 0.95), transparent 60%),
+    radial-gradient(1.4px 1.4px at 66px 187px, rgb(255 255 255 / 0.7), transparent 60%),
+    radial-gradient(2px 2px at 161px 223px, rgb(255 255 255 / 0.85), transparent 60%),
+    radial-gradient(1.4px 1.4px at 251px 67px, rgb(255 255 255 / 0.75), transparent 60%);
+  background-size: 331px 331px, 283px 283px, 421px 421px, 239px 239px, 373px 373px, 449px 449px;
+  animation: twinkle 5s ease-in-out infinite alternate;
+}
+.shooting-star {
+  position: absolute;
+  width: 120px;
+  height: 2px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #fff, rgb(255 255 255 / 0));
+  box-shadow: 0 0 8px rgb(255 255 255 / 0.5);
+  opacity: 0;
+  transform: rotate(-32deg);
+  animation: shoot 8s linear infinite;
+}
+@keyframes shoot {
+  0% { transform: translate3d(0, 0, 0) rotate(-32deg); opacity: 0; }
+  2% { opacity: 1; }
+  13%, 100% { transform: translate3d(-340px, 212px, 0) rotate(-32deg); opacity: 0; }
+}
+
+@layer components {
+/* ---- warm paper over the sky: every card. Type inside reads from the ink tokens. ---- */
+.card {
+  color: var(--color-ink);
+  background:
+    radial-gradient(130% 90% at 100% 0%, rgb(99 102 241 / 0.07), transparent 55%),
+    linear-gradient(180deg, #fffdf9 0%, #f6f1e8 100%);
+  border: 1px solid rgb(30 27 75 / 0.06);
+  box-shadow: var(--shadow-card);
+}
+.card-hover { transition: transform 0.25s ease, box-shadow 0.25s ease; }
+.card-hover:hover { transform: translateY(-4px); box-shadow: var(--shadow-lift); }
+
+/* white type on the sky gets a soft indigo halo, as in the Flywheel hero */
+.sky-shadow { text-shadow: 0 2px 30px rgb(30 27 75 / 0.35); }
+}
+
+::selection { background: rgb(67 56 202 / 0.6); color: #fff; }
+
+:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+.card :focus-visible, dialog :focus-visible { outline-color: var(--color-accent); }
+
+mark {
+  background: var(--color-mark);
+  color: inherit;
+  border-radius: 3px;
+  box-shadow: 0 0 0 2px var(--color-mark);
+}
+
+/* native <details> for progressive disclosure: our own chevron, no triangle */
+summary { list-style: none; cursor: pointer; }
+summary::-webkit-details-marker { display: none; }
+details[open] > summary .chev { transform: rotate(90deg); }
+
+/* the logo's middle piece turns slowly around its own centre */
+.logo-spin { transform-box: fill-box; transform-origin: center; }
+.group:hover .logo-spin { animation: logo-spin 0.55s ease-out; }
+@keyframes logo-spin { to { transform: rotate(360deg); } }
+
+@keyframes pt-fade-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.animate-in { animation: pt-fade-up 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  body::after, .section-stars, .shooting-star, .animate-in, .logo-spin { animation: none; }
+  .shooting-star { opacity: 0; }
+  .card-hover:hover { transform: none; }
+  html { scroll-behavior: auto; }
+}
+
+/* Paper, not sky, when printed: the report stays readable and cheap to print. */
+@media print {
+  html, body { background: #fff; color: var(--color-ink); }
+  body::before, body::after { display: none; }
+  .card { background: #fff; box-shadow: none; border: 0; }
+}

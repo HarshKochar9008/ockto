@@ -1,0 +1,62 @@
+{
+  "name": "papertrail",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1146.0",
+    "@aws-sdk/s3-request-presigner": "^3.1146.0",
+    "@fastify/static": "^10.1.5",
+    "@fontsource-variable/fraunces": "^5.3.0",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.222.0",
+    "@opentelemetry/instrumentation-http": "^0.222.0",
+    "@opentelemetry/resources": "^2.11.0",
+    "@opentelemetry/sdk-node": "^0.222.0",
+    "@opentelemetry/sdk-trace-base": "^2.11.0",
+    "@sentry/node": "^11.4.0",
+    "@tanstack/react-query": "^5.104.1",
+    "@temporalio/activity": "^1.24.0",
+    "@temporalio/client": "^1.24.0",
+    "@temporalio/common": "^1.24.0",
+    "@temporalio/interceptors-opentelemetry-v2": "^1.24.0",
+    "@temporalio/plugin": "^1.24.0",
+    "@temporalio/worker": "^1.24.0",
+    "@temporalio/workflow": "^1.24.0",
+    "fastify": "^5.12.5",
+    "pg": "^8.23.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "undici": "^7.28.0",
+    "unpdf": "^1.8.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@temporalio/testing": "^1.24.0",
+    "@types/node": "^24.19.1",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2"
+  },
+  "scripts": {
+    "dev:web": "vite --config web/vite.config.ts",
+    "api": "node --env-file-if-exists=.env --import ./server/instrument.ts server/api.ts",
+    "worker": "node --env-file-if-exists=.env --import ./server/instrument.ts server/worker.ts",
+    "migrate": "node --env-file-if-exists=.env server/migrate.ts",
+    "seed": "node --env-file-if-exists=.env server/seed.ts",
+    "demo-docs": "node scripts/demo-docs.ts",
+    "build": "node api.js && vite build --config web/vite.config.ts",
+    "typecheck": "tsc && tsc -p web",
+    "test": "node --test --test-concurrency=1 \"test/*.test.ts\""
+  },
+  "description": "Evidence-backed paperwork checklists on Temporal, Tiger Data (Postgres + pgvector), Sentry and Gemma."
+}
