@@ -6,15 +6,35 @@ services:
       - "7233:7233"
       - "8233:8233" # web UI
 
+  # Same engine as Tiger Data Cloud: Postgres + TimescaleDB, with pgvector bundled.
   db:
     image: timescale/timescaledb:latest-pg17
     environment:
-      POSTGRES_PASSWORD: ockto
+      POSTGRES_PASSWORD: papertrail
+      POSTGRES_DB: papertrail # `npm run migrate` creates the schema
     ports:
       - "5440:5432"
     volumes:
-      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
-      - db:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
+
+  # Gemma via Ollama. Pull models once:
+  #   docker compose exec ollama ollama pull gemma3:4b
+  #   docker compose exec ollama ollama pull embeddinggemma
+  # NVIDIA GPU: uncomment the deploy block.
+  ollama:
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_CONTEXT_LENGTH: 8192 # the default (4k) silently truncates long prompts
+      OLLAMA_KEEP_ALIVE: 30m      # loading gemma3:4b on CPU takes minutes
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices: [{ driver: nvidia, count: all, capabilities: [gpu] }]
 
 volumes:
-  db:
+  pgdata:
+  ollama:

@@ -1,29 +1,161 @@
-# ockto
+# PaperTrail
 
-Temporal for orchestration, Sentry for tracing, TigerData (TimescaleDB) for the event exhaust.
+**Every document. Every requirement. One clear path forward.**
 
-`OrderWorkflow` places an order, waits up to 24h for a `pay` signal, and then records the order as `paid` or `expired`.
-Each step writes an idempotent row to the `events` hypertable, tagged with its OpenTelemetry trace ID. The
-`events_hourly` continuous aggregate rolls those rows up.
+PaperTrail turns a pile of application paperwork into an evidence-backed checklist. Upload the requirements (a PDF or pasted text) and your supporting documents. PaperTrail extracts the requirements, matches each one to passages in your documents, flags what's missing, expired or uncertain, tracks deadlines, and sends reminders that survive restarts. Every AI assessment links to the page and passage it relied on, and nothing counts as verified until you say so.
 
-## Run
+The MVP targets university and scholarship applications. Nothing in the data model is specific to them.
 
-```sh
-cp .env.example .env            # set SENTRY_DSN to ship traces + errors
-docker compose up -d            # Temporal dev server (UI :8233) + TimescaleDB (:5440)
-uv sync
-
-uv run --env-file .env ockto worker
-uv run --env-file .env ockto order A1 1999
-uv run --env-file .env ockto pay A1
+```text
+browser ── React + TanStack Query ──▶ Fastify API (/api/v1) ──▶ Tiger Data / Postgres + pgvector
+                                          │                         ▲
+                                          └─ start / signal ─▶ Temporal ─▶ Worker (activities)
+                                                                              ├─ PDF parser / OCR
+                                                                              ├─ Gemma via Ollama (or any OpenAI-compatible endpoint)
+                                                                              └─ webhook reminders
+API + worker ── OTLP traces + errors ──▶ Sentry
 ```
 
-To point at TigerData Cloud, run `psql "$DATABASE_URL" -f schema.sql` once and set `DATABASE_URL`.
-To point at Temporal Cloud, set `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE` and `TEMPORAL_API_KEY`.
+| Piece | What it does here |
+| --- | --- |
+| **Temporal** | Four workflows: process a document, analyze a workspace, deliver reminders (durable timers), and retry failed processing from the step that failed. Retries, timeouts and heartbeats live in Temporal, not in app code. |
+| **Tiger Data** | The source of truth: workspaces, requirements, checklist, evidence, tasks, reminders, workflow runs, audit trail. Also the search engine: pgvector (HNSW) and Postgres full-text, fused with reciprocal rank fusion in one SQL query. |
+| **Sentry** | Errors and traces from the API and the worker. Activity failures are tagged with workflow, activity, attempt and workspace ids. Model calls are traced as `gen_ai` spans. Trace context crosses into workflows through Temporal's OpenTelemetry interceptors. |
+| **Gemma** | `gemma3:4b` for requirement extraction, classification, evidence assessment, Q&A and image OCR. `embeddinggemma` for 768-dimensional embeddings. |
 
-## Test
+## How the AI is kept honest
+
+The model proposes; deterministic code in [`server/analysis.ts`](server/analysis.ts) checks every answer against the source before it is stored:
+
+- **Structured output only.** Every call is constrained to a JSON schema and validated with zod. An invalid answer is re-asked once, then the activity fails and Temporal retries it.
+- **Citations must exist.** An evidence quote is kept only if it really occurs in the cited passage (ignoring case, punctuation and line breaks). A "satisfied" verdict with no verifiable quote is downgraded to *needs review*.
+- **Requirements must be traceable.** An extracted requirement whose source sentence can't be found in the document is flagged, and its due date is dropped.
+- **Expiry comes from the document.** An expiry date is stored only when the model quotes the sentence that states it. A document that has expired marks its requirement *expired*. One that expires before the deadline goes to *needs review*.
+- **Uncertainty goes to a human.** Any stated uncertainty turns *satisfied* into *needs review*.
+- **Present is not verified.** The UI shows "Evidence found (AI)" and "Verified by you" as different states. A user's decision always outranks later AI runs, and editing a requirement voids an earlier verification.
+- **Documents are data, not instructions.** Document text is fenced in tags it can't close, and the system prompt tells the model never to follow instructions inside them.
+
+## Run it locally
+
+Needs Node ≥ 22.18 (the `.ts` files run as-is, with no build step for the server) and Docker.
 
 ```sh
-uv run pytest                                   # workflow tests (time-skipping, no infra)
-DATABASE_URL=postgresql://postgres:ockto@localhost:5440/postgres uv run pytest   # + idempotent insert
+docker compose up -d                                    # Temporal (UI :8233), Postgres+pgvector (:5440), Ollama (:11434)
+docker compose exec ollama ollama pull gemma3:4b        # ~3.3 GB, once
+docker compose exec ollama ollama pull embeddinggemma   # ~0.6 GB, once
+npm install
+cp .env.example .env
+npm run migrate
+npm run worker        # terminal 1
+npm run api           # terminal 2: http://localhost:3000
+npm run dev:web       # terminal 3: http://localhost:5173 (proxies /api to :3000)
+npm run seed          # optional: demo account + workspace with fictional documents
 ```
+
+The seed account is `demo@papertrail.test` / `papertrail-demo`. All seed and demo data is fictional (`demo/*.pdf`, generated by `npm run demo-docs`).
+
+**Speed.** On a CPU-only laptop, `gemma3:4b` takes about 1–2 minutes per classification or assessment and about 5 minutes to extract requirements. The first call after a start also loads the model (about 3 minutes). Timeouts are sized for this: model activities get 15 minutes and heartbeat every 10 s. With an NVIDIA GPU, uncomment the `deploy` block in `compose.yaml`. You can also point `AI_BASE_URL` at a hosted OpenAI-compatible Gemma endpoint.
+
+### Production build
+
+```sh
+npm run build         # web/dist; the API serves it, so one process hosts app + API
+NODE_ENV=production npm run api
+npm run worker
+```
+
+## Configuration
+
+Everything is set through environment variables; [`.env.example`](.env.example) documents each one. The external services:
+
+| Service | Variables | When it's not configured |
+| --- | --- | --- |
+| Tiger Data (Tiger Cloud) | `DATABASE_URL` (append `?sslmode=require`) | Required. The compose Postgres works locally. |
+| Temporal Cloud | `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`, `TEMPORAL_API_KEY` | Required. The compose dev server works locally. |
+| Sentry | `SENTRY_DSN`, `SENTRY_ORG_URL` | No errors or traces are sent. Activity failures are still recorded on the activity page, just without Sentry links. |
+| Model provider | `AI_BASE_URL`, `AI_CHAT_MODEL`, `AI_API_KEY`, `EMBEDDING_*` | Processing fails with "AI provider unreachable". It is retried, then shown on the activity page. |
+| OCR | `OCR_MODEL` (a vision model) | Image uploads fail with "OCR is not configured". |
+| Object storage | `STORAGE_DRIVER=s3`, `S3_*`, AWS credentials | Files go to `./data/uploads`. |
+| Reminder webhook | `REMINDER_WEBHOOK_URL` (Slack-compatible) | Reminders are delivered in the app only, and labelled that way. |
+
+## Demo (about 3 minutes)
+
+Set `DEMO_FAILURE_INJECTION=true` (the default in `.env.example`). This shows a "simulate a failure" option that fails an activity once, on its first attempt.
+
+1. **Create.** Create a workspace with deadline 2027-01-15 and upload `demo/northbridge-requirements.pdf` as the requirements source.
+2. **Analyze.** Review the extracted requirements (each one links to its source sentence), then confirm them.
+3. **Find evidence.** Upload `demo/transcript-alex-rivera.pdf` and `demo/aet-score-report.pdf`, then run the analysis. The transcript is matched with a cited passage. The English test goes to *needs review* because it expires 2026-12-12, before the deadline. Passport, CV, letters and statement are *missing*.
+4. **Inject a failure.** Upload with "simulate a failure in extractText" ticked. On the **Activity** page, attempt 1 fails with a Sentry link and attempt 2 succeeds. The same failure appears in Sentry, tagged with the workflow, activity and attempt.
+5. **Act.** On **Tasks**, set a reminder "in 1 minute" on an open task, then mark the task done. The reminder shows as *suppressed* and is never delivered.
+6. **Explain.** On **Assistant**, ask "Why is my English test marked for review?" The answer cites the score report passage and links to the page.
+
+Finish on **Report** for a printable summary or CSV that separates AI assessments from verified items.
+
+## Tests
+
+```sh
+npm test              # all suites; integration suites need `docker compose up -d db`
+npm run typecheck
+```
+
+| Suite | Covers |
+| --- | --- |
+| `test/logic.test.ts` | File sniffing, PDF extraction (real, malformed, scanned), chunking, citation and expiry verification, prompt-fence escaping, schema re-ask, Sentry report policy |
+| `test/workflows.test.ts` | All four workflows on Temporal's time-skipping server: step order, retry without repeating completed steps, permanent failures, retry from checkpoint, partial analysis failure, a reminder timer that fires on a *different* worker after the first one stops, reminder suppression by signal and by the pre-send check |
+| `test/api.test.ts` | Real Postgres: 401s, cross-site write refusal, upload validation by content (exe, spoofed type, oversize), dedup, 20 cross-user ID-swap attempts that must all 404, document deletion removing chunks/embeddings/file from retrieval, human-over-AI precedence and audit, reminder idempotency and suppression, CSV formula defusing |
+| `test/sentry.test.ts` | An injected activity failure is captured by Sentry once with its tags, retried by Temporal, and journaled with its Sentry event id |
+
+Tests mock only the model provider and, in `api.test.ts`, the Temporal client. The database is real, and the integration suites create and use a separate `papertrail_test` database. For an end-to-end run against real services, follow the demo above with the worker running.
+
+## Project layout
+
+| Path | What's there |
+| --- | --- |
+| `server/api.ts`, `server/app.ts` | Fastify entry point and routes (thin: validate, authenticate, call the service) |
+| `server/service.ts` | Business operations, with an ownership check inside every one |
+| `server/workflows.ts` | Temporal workflows (deterministic sandbox, no I/O) |
+| `server/activities.ts` | Every side effect: storage, Postgres, model calls, webhooks. Each is idempotent. |
+| `server/analysis.ts` | Prompts and the post-checks applied to model output |
+| `server/ai.ts` | OpenAI-compatible adapter: chat (JSON schema), embeddings, OCR |
+| `server/retrieval.ts` | Hybrid pgvector + full-text search |
+| `server/sentry.ts`, `server/instrument.ts`, `server/workflow-interceptors.ts` | OpenTelemetry + Sentry setup, and an activity interceptor that reports and journals each attempt |
+| `server/auth.ts` | scrypt passwords, hashed session tokens, rate limits |
+| `shared/schemas.ts` | zod schemas and response types shared by the server and the web app |
+| `migrations/` | Versioned SQL, applied by `npm run migrate` |
+| `web/` | React + Vite + Tailwind front end |
+
+## Security and privacy
+
+- Session cookie is `HttpOnly` and `SameSite=Lax`, with `Secure` in production. Only a SHA-256 of the token is stored. Cross-origin writes are refused.
+- Every query that touches user data checks ownership inside the service function. Records you don't own return 404, not 403.
+- Upload type is sniffed from the bytes (PDF, PNG, JPEG, UTF-8 text) and must match the declared type. Size is limited by `MAX_UPLOAD_MB`. File names are sanitized and sent in a header, so they stay out of access logs.
+- Deleting a document deletes its file, its extracted text, its chunks and its embeddings, and returns the requirements it supported to *needs review*. Deleting a workspace deletes everything in it.
+- Sentry receives no request bodies, headers, cookies, user info or query strings. Tags carry opaque UUIDs only, and errors from model providers never echo the provider's response body.
+- Model processing: document text is sent to the configured `AI_BASE_URL`. That stays on your machine with the default local Ollama, but not with a hosted provider. The Settings page says which applies.
+- Rate limits apply to sign-up, login, uploads, analysis, search and the assistant.
+
+## Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| Documents stay *queued* | Start the worker (`npm run worker`). The work waits in Temporal and resumes on its own. |
+| "AI model … not found" | Pull the models (see Run it locally) or fix `AI_CHAT_MODEL` / `EMBEDDING_MODEL`. |
+| "AI provider unreachable" | Is Ollama up? Run `curl localhost:11434/api/tags`. |
+| Embedding dimension mismatch | The schema stores 768-dimensional vectors. Use `embeddinggemma` or `nomic-embed-text`, or change `vector(768)` in a new migration. |
+| Scanned PDF fails with "No text layer found" | Upload the pages as PNG or JPEG images, with `OCR_MODEL` set. |
+| Very slow analysis | Expected on CPU. Use a GPU or a hosted endpoint. Progress is visible per requirement on the Activity page. |
+| Assistant takes minutes to answer | One CPU model serves requests one at a time, so a question waits behind any document processing or analysis in progress. Ask once processing finishes, or raise `OLLAMA_NUM_PARALLEL` if you have the RAM. |
+| Ollama settings in `compose.yaml` don't apply | Recreate the container: `docker compose up -d ollama`. Check with `docker compose exec ollama ollama ps`. The CONTEXT column should say 8192. |
+| `EADDRINUSE :3000` | Something else is on port 3000. Run with `PORT=3001`, and set `API_URL=http://localhost:3001` for `npm run dev:web`. |
+
+## Deliberately left out
+
+| Left out | Add it when |
+| --- | --- |
+| Rasterizing scanned PDFs for OCR | Users bring scanned PDFs rather than photos. It needs a canvas dependency. |
+| Server-rendered PDF report | Browser print-to-PDF stops being enough. |
+| Front-end Sentry SDK | Front-end errors start mattering. Server and worker are instrumented today. |
+| Shared rate-limit store | The API runs on more than one instance. Today's limits are per process. |
+| Separate task queue for model activities | Slow Gemma calls start starving quick database activities. |
+| Email / SSO login | Real users. Today it's email and password. |
+| Automatic submission to portals | Never, without explicit human confirmation. Out of scope for the MVP. |
